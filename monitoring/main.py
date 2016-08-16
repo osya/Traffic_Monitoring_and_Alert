@@ -267,44 +267,43 @@ def judge_define_condition(rule, cursor):
     starttime_str = time.strftime("%Y-%m-%d %H:%M:%S", starttime)
     logger.info("starttime: " + starttime_str)
     # starttime_str = "2015-08-28 07:55:00"
-    where_time = " time > '%s' AND time <=  '%s' " % (starttime_str, endtime_str)
+    where_time = " answer_time_of_date  >=   (NOW() - INTERVAL 15 MINUTE)"
     logger.info("where_time: " + where_time)
 
     trunk_type = rule['trunk_type']
-    res_id = rule['res_id']
+    res_id = rule['res_id'],
     all_trunk = rule['all_trunk']
 
     # trunk
 
+    second_group_field_map = {
+        1: 'routing_digits',
+        2: 'origination_source_number'
+    }
+    second_group_field = second_group_field_map.get(rule['monitor_by']) or None;
+
     if trunk_type == 1:  # ingress
-        group = "GROUP BY ingress_id,orig_code"
-        group_field = "ingress_id as trunk_id,orig_code as code"
-        where_trunk = ""
-        if (all_trunk):
-            where_trunk += " AND ingress_id is not null "
-        else:
-            where_trunk += " AND ingress_id in (%s) " % (res_id,)
+        group = "GROUP BY ingress_id"
+        group_field = "ingress_id as trunk_id"
+        if second_group_field:
+            group += ', %s' % second_group_field
+            group_field += second_group_field
+        where_trunk = " AND ingress_id is not null "
     else:
-        group = "GROUP BY egress_id,term_code"
-        group_field = "egress_id as trunk_id,term_code as code"
-        where_trunk = ""
-        if all_trunk:
-            where_trunk += " AND egress_id is not null "
-        else:
-            where_trunk += " AND resource_id in (%s) " % (res_id,)
+        group = "GROUP BY egress_id"
+        group_field = "egress_id as trunk_id"
+        if second_group_field:
+            group += ', %s' % second_group_field
+            group_field += second_group_field
+        where_trunk = " AND egress_id is not null "
+
     logger.info("where_trunk: " + where_trunk)
 
     # include
-    include = rule['include']
     where_code = ""
-
-    if include is None or include == '':
-        include = 0
-    if include == 1:
+    if rule['include']:
         in_codes_arr = rule['in_codes'].split(',')
-        if in_codes_arr is None or in_codes_arr == ['']:
-            pass
-        else:
+        if in_codes_arr:
             for index, in_codes in enumerate(in_codes_arr):
                 in_codes_arr[index] = "'" + in_codes + "'"
             in_codes_arr1 = ','.join(in_codes_arr)
@@ -315,15 +314,9 @@ def judge_define_condition(rule, cursor):
                 where_code += " AND term_code in (%s) " % (in_codes_arr1,)
 
     # exclude
-    exclude = rule['exclude']
-
-    if exclude is None or exclude == '':
-        exclude = 0
-    if exclude == 1:
+    if rule['exclude']:
         ex_codes_arr = rule['ex_codes'].split(',')
-        if ex_codes_arr is None or ex_codes_arr == ['']:
-            pass
-        else:
+        if not ex_codes_arr:
             for key, ex_codes in enumerate(ex_codes_arr):
                 ex_codes_arr[key] = "'" + ex_codes + "'"
             ex_codes_arr1 = ','.join(ex_codes_arr)
@@ -335,7 +328,13 @@ def judge_define_condition(rule, cursor):
 
     logger.info("where_code: " + where_code)
 
-    count_sql = "SELECT count(*) as sum FROM client_cdr where %s %s %s " % (where_time, where_trunk, where_code)
+    count_sql = """SELECT %s, count(*) as total_attempt ,sum( call_duration >0),
+sum(`pdd`) as total_pdd , sum (`egress_cost` ) as total_egress_cost, sum (`ingress_client_cost` ) as total_ingress_cost, sum ( call_duration ) as total_duration
+
+, sum ( call_duration>0)
+as non_zero   ,  sum ( ring_time>0) as seizure  FROM `client_cdr` WHERE %s %s %s %s """ \
+                % (group_field, where_time, where_trunk, where_code, group)
+
     # myprint("count_sql: " + count_sql)
     cursor.execute(count_sql)
     sum = cursor.fetchone()
@@ -343,7 +342,8 @@ def judge_define_condition(rule, cursor):
     if sum is None:
         sum = 0
     else:
-        sum = int(sum['sum'])
+        from pdb import set_trace; set_trace()
+        sum = int(sum[0])
     # myprint("sum: " + str(sum))
 
     min_call_attempt = rule['min_call_attempt']
@@ -363,7 +363,7 @@ def judge_define_condition(rule, cursor):
         sql_2 = """SELECT sum(call_duration) as duration,count(case when call_duration > 0 then 1 else null end) as not_zero_calls,
                     count(case when binary_value_of_release_cause_from_protocol_stack like '486%' then 1 else null end) as busy_calls,count(*) as total_calls,
                     count( case when binary_value_of_release_cause_from_protocol_stack like '487%' then 1 else null end ) as cancel_calls,sum(case when call_duration > 0 then pdd else 0 end) as pdd,
-                    sum(ingress_client_cost) as ingress_client_cost_total,sum(egress_cost) as egress_cost_total,""" + group_field + """ FROM client_cdr"""
+                    sum(ingress_client_cost) as ingress_client_cost_total,sum(egress_cost) as egress_cost_total,""" + group_field + """ FROM demo_cdr"""
 
         sql_2 += """ where %s %s %s %s """ % (where_time, where_trunk, where_code, group)
 
@@ -610,13 +610,3 @@ def read_monitoring_rules():
 
 if __name__ == '__main__':
     read_monitoring_rules()
-
-    # ms, ms_cur = connect_to_memsql(host="209.126.102.168", port=3306, user="root", password="test123#", db="test")
-    #
-    # ms_cur.execute("SELECT * FROM demo_cdr;")
-    #
-    # data = ms_cur.fetchall()
-    #
-    # print "Data : %s " % str(data)
-    #
-    # ms.close()
