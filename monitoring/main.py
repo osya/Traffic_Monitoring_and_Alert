@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import MySQLdb
+import MySQLdb.cursors
 import psycopg2
 import psycopg2.extras
 import smtplib
@@ -10,6 +11,8 @@ import datetime as dt
 import sched
 
 # TODO: email, block in the resoruce_block
+# TODO: Code review
+# TODO: Write unit tests
 
 logger = logging.getLogger('Monitoring Rule')
 logger.setLevel(logging.INFO)
@@ -331,11 +334,9 @@ def judge_define_condition(rule, cursor):
 
     logger.info("where_code: " + where_code)
 
-    count_sql = """SELECT %s, count(*) as total_attempt ,sum( call_duration >0),
-sum(`pdd`) as total_pdd , sum (`egress_cost` ) as total_egress_cost, sum (`ingress_client_cost` ) as total_ingress_cost, sum ( call_duration ) as total_duration
-
-, sum ( call_duration>0)
-as non_zero   ,  sum ( ring_time>0) as seizure  FROM `demo_cdr` WHERE %s %s %s %s """ \
+    count_sql = """SELECT %s, count(*) as total_attempt, sum( call_duration > 0) as `sum`,
+sum(`pdd`) as total_pdd, sum (`egress_cost` ) as total_egress_cost, sum (`ingress_client_cost` ) as total_ingress_cost,
+sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum( ring_time>0) as seizure  FROM `demo_cdr` WHERE %s %s %s %s """ \
                 % (group_field, where_time, where_trunk, where_code, group)
 
     # myprint("count_sql: " + count_sql)
@@ -345,7 +346,7 @@ as non_zero   ,  sum ( ring_time>0) as seizure  FROM `demo_cdr` WHERE %s %s %s %
     if sum is None:
         sum = 0
     else:
-        sum = int(sum[0])
+        sum = int(sum['sum'])
     # myprint("sum: " + str(sum))
 
     min_call_attempt = rule['min_call_attempt']
@@ -586,7 +587,8 @@ def alert_rule(pg_cur, ms_cur):
 
 def connect_to_memsql(host, port, user, password, db):
     try:
-        conn = MySQLdb.connect(host=host, port=port, user=user, passwd=password, db=db)
+        conn = MySQLdb.connect(host=host, port=port, user=user, passwd=password, db=db,
+                               cursorclass=MySQLdb.cursors.DictCursor)
     except:
         raise 'Unable to connect to the MemSQL'
     return conn, conn.cursor()
@@ -617,6 +619,7 @@ def main():
 
     pg.close()
     ms.close()
+
 
 if __name__ == '__main__':
     main()
