@@ -288,14 +288,14 @@ def judge_define_condition(rule, cursor):
         if second_group_field:
             group += ', %s' % second_group_field
             group_field += second_group_field
-        where_trunk = " AND ingress_id is not null "
+        where_trunk = " AND ingress_id is not null " if all_trunk else " AND ingress_id in (%s) " % (res_id,)
     else:
         group = "GROUP BY egress_id"
         group_field = "egress_id as trunk_id"
         if second_group_field:
             group += ', %s' % second_group_field
             group_field += second_group_field
-        where_trunk = " AND egress_id is not null "
+            where_trunk = " AND egress_id is not null " if all_trunk else " AND egress_id in (%s) " % (res_id,)
 
     logger.info("where_trunk: " + where_trunk)
 
