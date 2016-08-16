@@ -345,7 +345,6 @@ as non_zero   ,  sum ( ring_time>0) as seizure  FROM `demo_cdr` WHERE %s %s %s %
     if sum is None:
         sum = 0
     else:
-        from pdb import set_trace; set_trace()
         sum = int(sum[0])
     # myprint("sum: " + str(sum))
 
