@@ -7,6 +7,9 @@ import smtplib
 import logging
 import time
 import datetime as dt
+import sched
+
+# TODO: email, block in the resoruce_block
 
 logger = logging.getLogger('Monitoring Rule')
 logger.setLevel(logging.INFO)
@@ -332,7 +335,7 @@ def judge_define_condition(rule, cursor):
 sum(`pdd`) as total_pdd , sum (`egress_cost` ) as total_egress_cost, sum (`ingress_client_cost` ) as total_ingress_cost, sum ( call_duration ) as total_duration
 
 , sum ( call_duration>0)
-as non_zero   ,  sum ( ring_time>0) as seizure  FROM `client_cdr` WHERE %s %s %s %s """ \
+as non_zero   ,  sum ( ring_time>0) as seizure  FROM `demo_cdr` WHERE %s %s %s %s """ \
                 % (group_field, where_time, where_trunk, where_code, group)
 
     # myprint("count_sql: " + count_sql)
@@ -600,13 +603,21 @@ def connect_to_postgresql(host, port, database, user, password=None):
     return conn, cursor
 
 
-def read_monitoring_rules():
+def process_loop(pg_cur, ms_cur, sc):
+    alert_rule(pg_cur, ms_cur)
+    sc.enter(60, 1, process_loop, (pg_cur, ms_cur, sc,))
+
+
+def main():
     pg, pg_cur = connect_to_postgresql('localhost', 5432, 'class4_pr', 'postgres')
     ms, ms_cur = connect_to_memsql(host="209.126.102.168", port=3306, user="root", password="test123#", db="test")
-    alert_rule(pg_cur, ms_cur)
+
+    s = sched.scheduler(time.time, time.sleep)
+    s.enter(0, 1, process_loop, (pg_cur, ms_cur, s,))
+    s.run()
+
     pg.close()
     ms.close()
 
-
 if __name__ == '__main__':
-    read_monitoring_rules()
+    main()
