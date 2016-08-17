@@ -4,15 +4,17 @@ import MySQLdb
 import MySQLdb.cursors
 import psycopg2
 import psycopg2.extras
-import smtplib
 import logging
 import time
 import datetime as dt
 import sched
 import types
 from settings import Config as Config
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
-# TODO: email, block in the resoruce_block
+# TODO: block in the resource_block
 # TODO: Code review
 # TODO: Write unit tests
 
@@ -21,6 +23,242 @@ logger.setLevel(logging.INFO)
 # add Console logger
 ch = logging.StreamHandler()
 logger.addHandler(ch)
+
+
+def send_email_log(cur,result_dict,client_id):
+    if result_dict['status'] == True:
+        status = 0
+    else:
+        status = 1
+    sql = """insert into email_log(send_time,client_id,email_addresses,type,status,error) values (CURRENT_TIMESTAMP(0),%s,%s,%s,%s,%s)"""
+    cur.execute(sql,(client_id,result_dict['send_email'],4,status,result_dict['msg']))
+
+
+def get_smtp_info_by_send(cur,send_mail_id):
+    sql = """SELECT  smtp_host AS host, smtp_port AS port,username,password as  password,loginemail as is_auth,
+email as from_email,name as name, secure as smtp_secure FROM mail_sender where id = %s""" % send_mail_id
+    cur.execute(sql)
+    smtp_setting = cur.fetchone()
+    return smtp_setting
+
+
+def get_smtp_info(cursor):
+    sql = """SELECT smtphost as host,smtpport as port,emailusername as username,emailpassword as password,loginemail as is_auth,
+				fromemail as from_email, smtp_secure as smtp_secure,noc_email as noc_email FROM system_parameter LIMIT 1"""
+    cursor.execute(sql)
+    smtp_setting = cursor.fetchone()
+    return smtp_setting
+
+
+def do_send_email(cursor,mail_subject,mail_content,send_email,sent_from,client_id,client_name):
+    result_dict = {'send_email' : send_email,'msg':'','status': False}
+    logger.info("send_email: "+str(send_email))
+    if send_email.strip()== '':
+        result_dict['msg'] = 'client[%s] email is not configured' % client_name
+        return result_dict
+
+    if sent_from == 'Default' or sent_from == 'default':
+        smtp_setting = get_smtp_info(cursor)
+    else:
+        smtp_setting = get_smtp_info_by_send(cursor,sent_from)
+        if smtp_setting is None:
+            smtp_setting = get_smtp_info(cursor)
+
+
+    smtp_info = smtp_setting
+    msg = MIMEMultipart()
+    msg['Subject'] = mail_subject
+    msg['From'] = smtp_info['from_email']
+    msg['to'] = send_email
+
+    part = MIMEText(mail_content, 'html')
+    msg.attach(part)
+    if smtp_info['smtp_secure'] == 2:
+        smtp = smtplib.SMTP_SSL(smtp_info['host'], smtp_info['port'])
+    else:
+        smtp = smtplib.SMTP(smtp_info['host'], smtp_info['port'])
+
+    try:
+        smtp.set_debuglevel(True)
+        if smtp_info['smtp_secure'] == 1:
+            smtp.starttls()
+        smtp.ehlo()
+        smtp.login(smtp_info['username'], smtp_info['password'])
+        smtp.sendmail(smtp_info['from_email'], send_email, msg.as_string())
+    except smtplib.SMTPRecipientsRefused:
+        result_dict['msg'] = 'All recipients were refused.'
+        result_dict['status'] = False
+    except smtplib.SMTPHeloError:
+        result_dict['msg'] = 'The server didn’t reply properly to the HELO greeting.'
+        result_dict['status'] = False
+    except smtplib.SMTPSenderRefused:
+        result_dict['msg'] = 'The server didn’t accept the %s.' % smtp_info['from_email']
+        result_dict['status'] = False
+    except smtplib.SMTPDataError:
+        result_dict['msg'] = 'The server replied with an unexpected error code (other than a refusal of a recipient).'
+        result_dict['status'] = False
+    else:
+        result_dict['msg'] = 'OK'
+        result_dict['status'] = True
+    finally:
+        smtp.quit()
+
+    send_email_log(cursor,result_dict,client_id)
+
+    return result_dict
+
+
+def get_client_email_info(cur,resource_id):
+    sql = """select client.email,client.client_id,client.noc_email,resource.alias,client.name FROM resource inner join client on resource.client_id = client.client_id
+where resource_id = %s"""
+    cur.execute(sql,(resource_id,))
+    email_info = cur.fetchone()
+    return email_info
+
+
+def send_type_email(rule,cursor,email_content_dirc,system_info):
+    actual_table_template = """<div style="width: 500px;margin: 0 auto 0;"><table border=0 cellpadding=5 cellspacing=0 style="background-color:#FAFAFA; border-collapse:collapse; border:0px solid #ccc; width:100%;white-space:nowrap;font-size:14px"><thead><tr><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><font color="#ffffff">Client</font></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><font color="#ffffff">Trunk</font></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><font color="#ffffff">Code</font></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><font color="#ffffff">ASR</font></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">ABR</span></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">ACD</span></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">PDD</span></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">Revenue</span></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">Profitability</span></th></tr></thead><tbody>{data_body}</tbody></table></div><div style="height: 15px;"></div>"""
+    actual_table_tbody_template = """<tr style="height: 20px"><td style="border:1px solid #cfcfcf">{client}</td><td style="border:1px solid #cfcfcf">{trunk}</td><td style="border:1px solid #cfcfcf">{code}</td><td style="border:1px solid #cfcfcf">{actual_asr}</td><td style="border:1px solid #cfcfcf">{actual_abr}</td><td style="border:1px solid #cfcfcf">{actual_acd}</td><td style="border:1px solid #cfcfcf">{actual_pdd}</td><td style="border:1px solid #cfcfcf">{actual_revenue}</td><td style="border:1px solid #cfcfcf">{actual_profitability}</td></tr>"""
+
+    limit_table_template = """<div style="width: 500px;margin: 0 auto 0;"><table border=0 cellpadding=5 cellspacing=0 style="background-color:#FAFAFA; border-collapse:collapse; border:0px solid #ccc; width:100%;white-space:nowrap;font-size:14px"><thead><tr><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><font color="#ffffff">Rule</font></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><font color="#ffffff">ASR</font></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">ABR</span></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">ACD</span></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">PDD</span></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">Revenue</span></th><th style="background-color:#51A351; text-align:left;border:1px solid #cfcfcf"><span style="color:#FFFFFF">Profitability</span></th></tr></thead><tbody>{data_body}</tbody></table></div><div style="height: 15px;"></div>"""
+    limit_table_tbody_template = """<tr style="height: 20px"><td style="border:1px solid #cfcfcf">{rule}</td><td style="border:1px solid #cfcfcf">{limit_asr}</td><td style="border:1px solid #cfcfcf">{limit_abr}</td><td style="border:1px solid #cfcfcf">{limit_acd}</td><td style="border:1px solid #cfcfcf">{limit_pdd}</td><td style="border:1px solid #cfcfcf">{limit_revenue}</td><td style="border:1px solid #cfcfcf">{limit_profitability}</td></tr>"""
+
+    sql = """SELECT trouble_ticket_subject,trouble_ticket_content,trouble_ticket_sent_from from alert_rules where id = %s""" % rule['id']
+    cursor.execute(sql)
+    email_template = cursor.fetchone()
+    mail_content = email_template['trouble_ticket_content']
+    mail_subject = email_template['trouble_ticket_subject']
+    mail_from = email_template['trouble_ticket_sent_from']
+    #limit
+    limit_asr = 'ignore' if rule['asr'] == '1' else rule['asr'] + ' ' + str(rule['asr_value']) + '%'
+    limit_abr = 'ignore' if rule['abr'] == '1' else rule['abr'] + ' ' + str(rule['abr_value']) + '%'
+    limit_acd = 'ignore' if rule['acd'] == '1' else rule['acd'] + ' ' + str(rule['acd_value']) + 's'
+    limit_pdd = 'ignore' if rule['pdd'] == '1' else rule['pdd'] + ' ' + str(rule['pdd_value']) + 's'
+    limit_revenue = 'ignore' if rule['revenue'] == '1' else rule['revenue'] + ' ' + str(round(rule['revenue_value'],2))
+    limit_profitability = 'ignore' if rule['profitability'] == '1' else rule['profitability'] + ' ' + str(rule['profitability_value']) + '%'
+
+    rule_name = rule['rule_name']
+
+    limit_table_tbody_template = limit_table_tbody_template.replace('{rule}',str(rule_name)).replace('{limit_asr}',str(limit_asr)).replace('{limit_abr}',str(limit_abr)).replace('{limit_acd}',str(limit_acd)) \
+                                    .replace('{limit_pdd}',str(limit_pdd)).replace('{limit_revenue}',str(limit_revenue)).replace('{limit_profitability}',str(limit_profitability))
+    limit_table_template = limit_table_template.replace('{data_body}',limit_table_tbody_template)
+
+    switch_alias = system_info['switch_alias']
+
+    mail_content = mail_content.replace('{rule_name}',str(rule['rule_name'])).replace('{switch_alias}',str(switch_alias)).replace('{limit_table}',limit_table_template)
+
+
+    send_type =  rule['trouble_ticket_sent_to']
+
+    if(send_type != 2):
+        send_sys_email = system_info['noc_email']
+        tmp_sys_email = system_info['system_admin_email']
+        if send_sys_email.strip()== '':
+            send_sys_email = tmp_sys_email
+
+
+    for resource_id in email_content_dirc:
+        client_email_info = get_client_email_info(cursor,resource_id)
+        client_id = client_email_info['client_id']
+        client_name = client_email_info['name']
+        resource_name = client_email_info['alias']
+        send_email = client_email_info['noc_email']
+        tmp_email = client_email_info['email']
+
+
+        if send_email.strip()== '':
+            send_email = tmp_email
+
+        data_table = ''
+        detail_log_ids = ''
+        for code in email_content_dirc[resource_id]:
+            asr = email_content_dirc[resource_id][code]['running_info']['asr']
+            abr = email_content_dirc[resource_id][code]['running_info']['abr']
+            acd = email_content_dirc[resource_id][code]['running_info']['acd']
+            pdd = email_content_dirc[resource_id][code]['running_info']['pdd']
+            revenue = email_content_dirc[resource_id][code]['running_info']['revenue']
+            profitability = email_content_dirc[resource_id][code]['running_info']['profitability']
+
+            if detail_log_ids == '':
+                detail_log_ids += str(email_content_dirc[resource_id][code]['detail_log_id'])
+            else:
+                detail_log_ids += ',' + str(email_content_dirc[resource_id][code]['detail_log_id'])
+
+            if code is None:
+                code = ''
+            data_table += actual_table_tbody_template.replace('{client}',str(client_name)).replace('{trunk}',str(resource_name)).replace('{code}',str(code)).replace('{actual_asr}',str(asr) + '%') \
+                .replace('{actual_abr}',str(abr) + '%').replace('{actual_acd}',str(acd) + 's').replace('{actual_pdd}',str(pdd) + 's') \
+                .replace('{actual_revenue}',str(round(revenue,2))).replace('{actual_profitability}',str(profitability) + '%')
+        actual_table_template = actual_table_template.replace('{data_body}',data_table)
+        mail_content = mail_content.replace('{rule_name}',str(rule['rule_name'])).replace('{switch_alias}',str(switch_alias)) \
+                            .replace('{actual_table}',actual_table_template)
+
+        if(send_type == 2): #client
+            mail_content = mail_content.replace('{username}',str(client_name))
+            rst_dirc = do_send_email(cursor,mail_subject,mail_content,send_email,mail_from,client_id,client_name)
+            rst_dirc['detail_log_ids'] = detail_log_ids
+            rst_dirc['email_type'] = send_type
+            save_log_detail(cursor,rst_dirc,'email_client')
+        elif(send_type == 1): #admin
+            mail_content = mail_content.replace('{username}','Admin')
+            rst_dirc = do_send_email(cursor,mail_subject,mail_content,send_sys_email,mail_from,client_id,'admin')
+            rst_dirc['detail_log_ids'] = detail_log_ids
+            rst_dirc['email_type'] = send_type
+            save_log_detail(cursor,rst_dirc,'email_admin')
+        else:
+            mail_content1 = mail_content.replace('{username}',str(client_name))
+            rst_dirc = do_send_email(cursor,mail_subject,mail_content1,send_email,mail_from,client_id,client_name)
+            rst_dirc['detail_log_ids'] = detail_log_ids
+            rst_dirc['email_type'] = send_type
+            save_log_detail(cursor,rst_dirc,'email_client')
+
+            mail_content = mail_content.replace('{username}','Admin')
+            rst_dirc = do_send_email(cursor,mail_subject,mail_content,send_sys_email,mail_from,client_id,'admin')
+            rst_dirc['detail_log_ids'] = detail_log_ids
+            rst_dirc['email_type'] = send_type
+            save_log_detail(cursor,rst_dirc,'email_admin')
+
+
+def get_system_parameter(cur):
+    sql = """select * from system_parameter limit 1"""
+    cur.execute(sql)
+    return cur.fetchone()
+
+
+def email(rule,return_arr,cursor):
+    is_all_trunk = False
+    include = rule['include']
+    if include is None or include == '':
+        include = 0
+
+    exclude = rule['exclude']
+    if exclude is None or exclude == '':
+        exclude = 0
+    if include == 0 and exclude == 0:
+        is_all_trunk = True
+
+    client_email_content_arr = {}
+    # admin_email_content_arr = {}
+
+    for key in return_arr:
+        detail_log_id = return_arr[key]['alert_rules_log_detail_id']
+        trunk_id = return_arr[key]['trunk_id']
+        trunk_type = return_arr[key]['trunk_type']
+        code = return_arr[key]['code']
+        running_info = return_arr[key]['running_info']
+
+
+        # if is_all_trunk:
+    if trunk_id not in client_email_content_arr.keys():
+        client_email_content_arr[trunk_id] = {}
+    # if trunk_id not in admin_email_content_arr.keys():
+    #     admin_email_content_arr[trunk_id] = {}
+    client_email_content_arr[trunk_id][code] = {'trunk_type':trunk_type,'running_info':running_info,'detail_log_id':detail_log_id}
+            # admin_email_content_arr[trunk_id][code] = {'trunk_type':trunk_type,'running_info':running_info}
+
+    system_info = get_system_parameter(cursor)
+
+    send_type_email(rule,cursor,client_email_content_arr,system_info)
 
 
 def do_block(cursor, resource_id, trunk_type, rule_name, code=''):
