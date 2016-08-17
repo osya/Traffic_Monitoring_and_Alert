@@ -9,6 +9,7 @@ import logging
 import time
 import datetime as dt
 import sched
+import types
 
 # TODO: email, block in the resoruce_block
 # TODO: Code review
@@ -277,7 +278,9 @@ def judge_define_condition(rule, cursor):
     logger.info("where_time: " + where_time)
 
     trunk_type = rule['trunk_type']
-    res_id = rule['res_id'],
+    res_id = rule['res_id']
+    if isinstance(res_id, types.TupleType):
+        res_id = res_id[0]
     all_trunk = rule['all_trunk']
 
     # trunk
@@ -339,7 +342,7 @@ sum(`pdd`) as total_pdd, sum (`egress_cost` ) as total_egress_cost, sum (`ingres
 sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum( ring_time>0) as seizure  FROM `demo_cdr` WHERE %s %s %s %s """ \
                 % (group_field, where_time, where_trunk, where_code, group)
 
-    # myprint("count_sql: " + count_sql)
+    logger.info("count_sql: " + count_sql)  # for debug
     cursor.execute(count_sql)
     sum = cursor.fetchone()
     # myprint(sum)
