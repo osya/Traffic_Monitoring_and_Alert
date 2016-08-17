@@ -10,6 +10,7 @@ import time
 import datetime as dt
 import sched
 import types
+from settings import Config as Config
 
 # TODO: email, block in the resoruce_block
 # TODO: Code review
@@ -576,7 +577,7 @@ def alert_rule(pg_cur, ms_cur):
                     block(rule, return_arr, pg_cur)
 
                 is_email = rule['is_email']
-                if is_email != True:
+                if not is_email:
                     save_log_detail(pg_cur, False, 'email_false', return_arr)
                     logger.info("not send mail")
                 else:
@@ -609,12 +610,15 @@ def connect_to_postgresql(host, port, database, user, password=None):
 
 def process_loop(pg_cur, ms_cur, sc):
     alert_rule(pg_cur, ms_cur)
-    sc.enter(60, 1, process_loop, (pg_cur, ms_cur, sc,))
+    sc.enter(Config['MONITORING_CYCLE_DELAY'], 1, process_loop, (pg_cur, ms_cur, sc,))
 
 
 def main():
-    pg, pg_cur = connect_to_postgresql('localhost', 5432, 'class4_pr', 'postgres')
-    ms, ms_cur = connect_to_memsql(host="209.126.102.168", port=3306, user="root", password="test123#", db="test")
+    pg, pg_cur = connect_to_postgresql(Config['POSTGRESQL_HOST'], Config['POSTGRESQL_PORT'],
+                                       Config['POSTGRESQL_DATABASE'], Config['POSTGRESQL_USER'],
+                                       Config['POSTGRESQL_PASSWORD'])
+    ms, ms_cur = connect_to_memsql(host=Config['MEMSQL_HOST'], port=Config['MEMSQL_PORT'], user=Config['MEMSQL_USER'],
+                                   password=Config['MEMSQL_PASSWORD'], db=Config['MEMSQL_DB'])
 
     s = sched.scheduler(time.time, time.sleep)
     s.enter(0, 1, process_loop, (pg_cur, ms_cur, s,))
