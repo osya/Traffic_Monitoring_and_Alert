@@ -23,6 +23,8 @@ logger.setLevel(logging.INFO)
 # add Console logger
 ch = logging.StreamHandler()
 logger.addHandler(ch)
+fh = logging.FileHandler('/home/valeriy/monitoring/monitoring.log')
+logger.addHandler(fh)
 
 
 def send_email_log(cur,result_dict,client_id):
