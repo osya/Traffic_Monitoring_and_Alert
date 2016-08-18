@@ -14,7 +14,6 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-# TODO: block in the resource_block
 # TODO: Code review
 # TODO: Write unit tests
 
@@ -516,7 +515,7 @@ def judge_define_condition(rule, cursor):
     logger.info("starttime: " + starttime_str)
     # starttime_str = "2015-08-28 07:55:00"
     specific_minutes = rule.get('specific_minutes')
-    where_time = " FROM_UNIXTIME(`answer_time_of_date` / 1000000) >= (NOW() - INTERVAL %s MINUTE)" % specific_minutes if specific_minutes else None
+    where_time = " FROM_UNIXTIME(`start_time_of_date` / 1000000) >= (NOW() - INTERVAL %s MINUTE)" % specific_minutes if specific_minutes else None
     logger.info("where_time: " + where_time)
 
     trunk_type = rule['trunk_type']
