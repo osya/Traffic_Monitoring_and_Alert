@@ -684,18 +684,20 @@ def judge_time(rule, cursor):
             pos = last_run_time_str.find(':', pos + 1)
             last_run_time_str = last_run_time_str[:pos] + ":00"
             logger.info("by minute:last_run_time" + last_run_time_str)
-            last_run_time = dt.datetime.strptime(last_run_time_str, "%Y-%m-%d %H:%M:%S")
-            last_run_time = time.mktime(last_run_time.timetuple())
-
             every_min = rule['specific_minutes']
             if every_min is None or every_min == '':
                 every_min = 1
             every_min = int(every_min)
             logger.info("interval time:" + str(every_min))
+            next_plan_run_time = last_run_time + dt.timedelta(minutes=every_min)
+            logger.info("next_plan_run_time:" + str(next_plan_run_time))
             logger.info("***\n")
+
             if every_min == 1:
                 is_true = True
             else:
+                last_run_time = dt.datetime.strptime(last_run_time_str, "%Y-%m-%d %H:%M:%S")
+                last_run_time = time.mktime(last_run_time.timetuple())
                 now_timestamp = time.mktime(time.strptime(now_timestamp_str, "%Y-%m-%d %H:%M:%S"))
                 if last_run_time <= now_timestamp - 60 * every_min:  # 超过间隔，满足
                     is_true = True
@@ -809,7 +811,7 @@ def alert_rule(pg_cur, ms_cur):
 
                 # 是否block
                 is_block = rule['is_block']
-                if is_block != True:
+                if not is_block:
                     save_log_detail(pg_cur, False, 'block_false', return_arr)
                     logger.info("not block")
                 else:
