@@ -538,7 +538,7 @@ def judge_define_condition(rule, cursor):
         group_field = "ingress_id as trunk_id"
         if second_group_field:
             group += ', %s' % second_group_field
-            group_field += second_group_field
+            group_field += ', %s' % second_group_field
         where_trunk = " AND ingress_id is not null " if all_trunk else " AND ingress_id in (%s) " % (res_id,)
     else:
         group = "GROUP BY egress_id"
@@ -762,7 +762,7 @@ def judge_time(rule, cursor):
             last_run_hour = last_run_time.tm_hour
             last_run_wday = last_run_time.tm_wday
 
-            logger.info("by week:last_run_time" + last_run_time_str)
+            logger.info("by week:last_run_time: " + last_run_time_str)
             # myprint(week_time+now_hour+last_run_hour)
             # myprint(week_day+now_wday+last_run_wday)
             logger.info("***\n")
