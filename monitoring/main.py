@@ -515,7 +515,8 @@ def judge_define_condition(rule, cursor):
     starttime_str = time.strftime("%Y-%m-%d %H:%M:%S", starttime)
     logger.info("starttime: " + starttime_str)
     # starttime_str = "2015-08-28 07:55:00"
-    where_time = " answer_time_of_date  >=   (NOW() - INTERVAL 15 MINUTE)"
+    specific_minutes = rule.get('specific_minutes')
+    where_time = " answer_time_of_date  >=   (NOW() - INTERVAL %s MINUTE)" % specific_minutes if specific_minutes else None
     logger.info("where_time: " + where_time)
 
     trunk_type = rule['trunk_type']
