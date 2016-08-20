@@ -165,7 +165,9 @@ def send_type_email(rule, cursor, email_content_dirc, system_info):
 
     for resource_id in email_content_dirc:
         client_email_info = get_client_email_info(cursor, resource_id)
-        client_id = client_email_info['client_id']
+        if not client_email_info:
+            return
+        client_id = client_email_info.get('client_id')
         client_name = client_email_info['name']
         resource_name = client_email_info['alias']
         send_email = client_email_info['noc_email']
@@ -271,30 +273,64 @@ def email(rule, return_arr, cursor):
     send_type_email(rule, cursor, client_email_content_arr, system_info)
 
 
+def do_block_trunk_ani(cursor, resource_id, trunk_type, ani_prefix):
+    if trunk_type == 1:
+        # Block Origination - Trunk + ANI
+        block_sql = 'insert into resource_block (ingress_res_id, ani_prefix) values (%s, %s) returning res_block_id' % \
+                    (resource_id, ani_prefix)
+    else:
+        # Block Termination - Trunk + ANI
+        block_sql = 'insert into resource_block (engress_res_id, ani_prefix) values (%s, %s) returning res_block_id' % \
+                    (resource_id, ani_prefix)
+
+    logger.info("ani_block_sql: " + block_sql)
+    cursor.execute(block_sql)
+    res_block_id = cursor.fetchone()
+    res_block_id = res_block_id['res_block_id']
+    return res_block_id
+
+
+def do_block_trunk_dnis(cursor, resource_id, digits):
+    # Block Termination  - Trunk   + DNIS
+    block_sql = 'insert into resource_block (engress_res_id, digit) values (%s, \'%s\') returning res_block_id' % \
+                (resource_id, ','.join(digits))
+
+    logger.info("dnis_block_sql: " + block_sql)
+    cursor.execute(block_sql)
+    res_block_id = cursor.fetchone()
+    res_block_id = res_block_id['res_block_id']
+    return res_block_id
+
+
 def do_block(cursor, resource_id, trunk_type, rule_name, code=''):
     sql = """select client_id FROM resource where resource_id = %s"""
     cursor.execute(sql, (resource_id,))
     client = cursor.fetchone()
-    client_id = client['client_id']
-    update_by = "Alert Rule[%s]" % rule_name
-    if code == '':
+    if not client:
+        return
+    client_id = client.get('client_id')
+    res_block_id = None
+    if client_id:
+        update_by = "Alert Rule[%s]" % rule_name
         if trunk_type == 1:
-            block_sql = """insert into resource_block (ingress_client_id,ingress_res_id,action_type,update_by,create_time) values (%s,%s,1,'%s',current_timestamp(0)) returning res_block_id""" % (
-                client_id, resource_id, update_by)
+            if code == '':
+                block_sql = """insert into resource_block (ingress_client_id,ingress_res_id,action_type,update_by,create_time) values (%s,%s,1,'%s',current_timestamp(0)) returning res_block_id""" % (
+                    client_id, resource_id, update_by)
+            else:
+                block_sql = """insert into resource_block (ingress_client_id,ingress_res_id,digit,action_type,update_by,create_time) values (%s,%s,'%s',1,'%s',current_timestamp(0)) returning res_block_id""" % (
+                    client_id, resource_id, code, update_by)
         else:
-            block_sql = """insert into resource_block (egress_client_id,engress_res_id,action_type,update_by,create_time) values (%s,%s,1,'%s',current_timestamp(0)) returning res_block_id""" % (
-                client_id, resource_id, update_by)
-    else:
-        if trunk_type == 1:
-            block_sql = """insert into resource_block (ingress_client_id,ingress_res_id,digit,action_type,update_by,create_time) values (%s,%s,'%s',1,'%s',current_timestamp(0)) returning res_block_id""" % (
-                client_id, resource_id, code, update_by)
-        else:
-            block_sql = """insert into resource_block (egress_client_id,engress_res_id,digit,action_type,update_by,create_time) values (%s,%s,'%s',1,'%s',current_timestamp(0)) returning res_block_id""" % (
-                client_id, resource_id, code, update_by)
-    logger.info("block_sql: " + block_sql)
-    cursor.execute(block_sql)
-    res_block_id = cursor.fetchone()
-    res_block_id = res_block_id['res_block_id']
+            if code == '':
+                block_sql = """insert into resource_block (egress_client_id,engress_res_id,action_type,update_by,create_time) values (%s,%s,1,'%s',current_timestamp(0)) returning res_block_id""" % (
+                    client_id, resource_id, update_by)
+            else:
+                block_sql = """insert into resource_block (egress_client_id,engress_res_id,digit,action_type,update_by,create_time) values (%s,%s,'%s',1,'%s',current_timestamp(0)) returning res_block_id""" % (
+                    client_id, resource_id, code, update_by)
+
+        logger.info("block_sql: " + block_sql)
+        cursor.execute(block_sql)
+        res_block_id = cursor.fetchone()
+        res_block_id = res_block_id['res_block_id']
     return res_block_id
 
 
@@ -349,7 +385,7 @@ def judge_is_in_blocks(blocks, trunk_id, trunk_type, code=''):
         return False
 
 
-def block(rule, return_arr, cursor):
+def block(rule, return_arr, cursor, egress_digits):
     # for item in return_arr:
     is_block_all_trunk = False
     include = rule['include']
@@ -388,9 +424,20 @@ def block(rule, return_arr, cursor):
             else:
                 # 添加进resource_block 表
                 rst = do_block(cursor, trunk_id, trunk_type, rule['rule_name'])
-                val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                val = {'alert_rules_log_detail_id': return_arr[key].get('alert_rules_log_detail_id'),
                        'resource_block_id': rst}
                 save_log_detail(cursor, val, 'block_true')
+
+                # ani_prefix = None
+                # rst = do_block_trunk_ani(cursor, trunk_id, trunk_type, ani_prefix)
+                # val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                #        'resource_block_id': rst}
+                # save_log_detail(cursor, val, 'block_true')
+                if trunk_type == 2:
+                    rst = do_block_trunk_dnis(cursor, trunk_id, egress_digits.get(trunk_id))
+                    val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                           'resource_block_id': rst}
+                    save_log_detail(cursor, val, 'block_true')
 
     else:
         global inserted_trunk_code_dic
@@ -415,6 +462,17 @@ def block(rule, return_arr, cursor):
                 val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
                        'resource_block_id': rst}
                 save_log_detail(cursor, val, 'block_true')
+
+                # ani_prefix = None
+                # rst = do_block_trunk_ani(cursor, trunk_id, trunk_type, ani_prefix)
+                # val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                #        'resource_block_id': rst}
+                # save_log_detail(cursor, val, 'block_true')
+                if trunk_type == 2:
+                    rst = do_block_trunk_dnis(cursor, trunk_id, egress_digits[trunk_id])
+                    val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                           'resource_block_id': rst}
+                    save_log_detail(cursor, val, 'block_true')
 
 
 def save_log_detail(cursor, val, opt, return_arr=[]):
@@ -471,15 +529,16 @@ def save_return_arr_to_detail(rule, alert_rules_log_id, return_arr, cursor):
         if not is_all_trunk and return_arr[key]['code'] is None:
             continue
         running_info = return_arr[key]['running_info']
-        sql = """INSERT INTO alert_rules_log_detail(alert_rules_log_id,resource_id,code,asr,acd,abr,pdd,revenue,profitability)
-                  VALUES (%s, %s, '%s', %s, %s, %s, %s, %s, %s ) returning id"""
-        sql = sql % (alert_rules_log_id, return_arr[key]['trunk_id'], return_arr[key]['code'], running_info['asr'],
-                     running_info['acd'], running_info['abr'], running_info['pdd'], running_info['revenue'],
-                     running_info['profitability'])
-        cursor.execute(sql, (alert_rules_log_id,))
-        alert_rules_log_detail_id = cursor.fetchone()
-        alert_rules_log_detail_id = alert_rules_log_detail_id['id']
-        return_arr[key]['alert_rules_log_detail_id'] = alert_rules_log_detail_id
+        if return_arr[key]['trunk_id']:
+            sql = """INSERT INTO alert_rules_log_detail(alert_rules_log_id,resource_id,code,asr,acd,abr,pdd,revenue,profitability)
+                      VALUES (%s, %s, '%s', %s, %s, %s, %s, %s, %s ) returning id"""
+            sql = sql % (alert_rules_log_id, return_arr[key]['trunk_id'], return_arr[key]['code'], running_info['asr'],
+                         running_info['acd'], running_info['abr'], running_info['pdd'], running_info['revenue'],
+                         running_info['profitability'])
+            cursor.execute(sql, (alert_rules_log_id,))
+            alert_rules_log_detail_id = cursor.fetchone()
+            alert_rules_log_detail_id = alert_rules_log_detail_id['id']
+            return_arr[key]['alert_rules_log_detail_id'] = alert_rules_log_detail_id
 
     return return_arr
 
@@ -555,7 +614,7 @@ def judge_define_condition(rule, cursor):
         group_field = "egress_id as trunk_id"
         if second_group_field:
             group += ', %s' % second_group_field
-            group_field += second_group_field
+            group_field += ', %s' % second_group_field
             where_trunk = " AND egress_id is not null " if all_trunk else " AND egress_id in (%s) " % (res_id,)
 
     logger.info("where_trunk: " + where_trunk)
@@ -608,13 +667,14 @@ sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum
     if min_call_attempt is None or min_call_attempt == '':
         min_call_attempt = 0
     min_call_attempt = int(min_call_attempt)
+    logger.info("sum: " + str(sum))
     logger.info("min_call_attempt: " + str(min_call_attempt))
 
     if sum < min_call_attempt:
         is_true = False
 
     if not is_true:
-        return {}
+        return {}, None
     else:
         logger.info("***judge other condition***")
         # myprint((group_field,where_time,where_trunk,where_code,group))
@@ -625,7 +685,7 @@ sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum
 
         sql_2 += """ where %s %s %s %s """ % (where_time, where_trunk, where_code, group)
 
-        # myprint("sql_2: " + sql_2)
+        logger.info("sql_2: " + sql_2)
         cursor.execute(sql_2)
         data = cursor.fetchall()
 
@@ -654,6 +714,9 @@ sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum
             second_data['profitability'] = (
                                                ingress_client_cost_total - egress_cost_total) / ingress_client_cost_total * 100 if ingress_client_cost_total != 0 else 0
             second_data['revenue'] = ingress_client_cost_total - egress_cost_total
+            logger.info("not_zero_calls=%s, busy_calls=%s, cancel_calls=%s, asr_=%s" % (
+                not_zero_calls, busy_calls, cancel_calls, asr_))
+            logger.info("second_data: " + str(second_data))
 
             if (rule['revenue'] != '1' and not judge_num(second_data['revenue'], rule['revenue_value'],
                                                          rule['revenue'])) \
@@ -669,11 +732,25 @@ sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum
             logger.info("can run")
             return_arr[i] = {}
             return_arr[i]['running_info'] = second_data
-            return_arr[i]['trunk_id'] = item['trunk_id']
+            return_arr[i]['trunk_id'] = item.get('trunk_id')
             return_arr[i]['trunk_type'] = trunk_type
-            return_arr[i]['code'] = item['code']
+            return_arr[i]['code'] = item.get('code')
             i += 1
-    return return_arr
+
+        # Build dictionary for ingress_id, egress_id, and origination_source_number
+        sql_digits = 'SELECT DISTINCT origination_source_number, ingress_id, egress_id FROM demo_cdr WHERE %s %s %s' % (
+            where_time, where_trunk, where_code)
+        logger.info("sql_digits: " + sql_digits)
+        cursor.execute(sql_digits)
+        digits = cursor.fetchall()
+        egress_digits = {}
+        for item in digits:
+            if item['egress_id'] in egress_digits:
+                egress_digits[item['egress_id']].append(item['origination_source_number'])
+            else:
+                egress_digits[item['egress_id']] = [item['origination_source_number']]
+
+    return return_arr, egress_digits
 
 
 def judge_time(rule, cursor):
@@ -803,7 +880,7 @@ def alert_rule(pg_cur, ms_cur):
             is_true = judge_time(rule, pg_cur)
             if not is_true:
                 continue
-            return_arr = judge_define_condition(rule, ms_cur)
+            return_arr, egress_digits = judge_define_condition(rule, ms_cur)
 
             sql = """INSERT INTO alert_rules_log(alert_rules_id, create_on,limit_asr,limit_abr,limit_acd,limit_pdd,limit_revenue,limit_profitability,limit_asr_value,limit_abr_value,limit_acd_value,limit_pdd_value,limit_revenue_value,limit_profitability_value) VALUES (%s, CURRENT_TIMESTAMP(0),%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s) returning id"""
             pg_cur.execute(sql, (
@@ -813,6 +890,7 @@ def alert_rule(pg_cur, ms_cur):
                 rule['revenue_value'], rule['profitability_value']))
             alert_rules_log_id = pg_cur.fetchone()
             alert_rules_log_id = alert_rules_log_id['id']
+
             if return_arr == {}:
                 save_finish_alert_rule_log(pg_cur, alert_rules_log_id, 0)
                 continue
@@ -827,7 +905,7 @@ def alert_rule(pg_cur, ms_cur):
                     logger.info("not block")
                 else:
                     logger.info("block")
-                    block(rule, return_arr, pg_cur)
+                    block(rule, return_arr, pg_cur, egress_digits)
 
                 is_email = rule['is_email']
                 if not is_email:
