@@ -604,10 +604,11 @@ def judge_define_condition(rule, cursor):
     starttime_str = time.strftime("%Y-%m-%d %H:%M:%S", starttime)
     logger.info("starttime: " + starttime_str)
     # starttime_str = "2015-08-28 07:55:00"
-    specific_minutes = rule.get('specific_minutes')
+
+    sample_size = rule.get('sample_size')
     where_time = " FROM_UNIXTIME(`start_time_of_date` / 1000000) >= (SELECT FROM_UNIXTIME(start_time_of_date div " \
-                 "1000000)-interval %s minute FROM `client_cdr` order by 1 desc limit 1)" % specific_minutes \
-        if specific_minutes else None
+                 "1000000)-interval %s minute FROM `client_cdr` order by 1 desc limit 1)" % sample_size \
+        if sample_size else None
     logger.info("where_time: " + where_time)
 
     trunk_type = rule['trunk_type']
