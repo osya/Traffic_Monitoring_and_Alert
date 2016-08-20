@@ -292,8 +292,9 @@ def do_block_trunk_ani(cursor, resource_id, trunk_type, ani_prefix):
 
 def do_block_trunk_dnis(cursor, resource_id, digits):
     # Block Termination  - Trunk   + DNIS
-    block_sql = 'insert into resource_block (engress_res_id, digit) values (%s, \'%s\') returning res_block_id' % \
-                (resource_id, ','.join(digits))
+    for digit in digits:
+        block_sql = 'insert into resource_block (engress_res_id, digit) values (%s, \'%s\') returning res_block_id' % \
+                    (resource_id, digit)
 
     logger.info("dnis_block_sql: " + block_sql)
     cursor.execute(block_sql)
