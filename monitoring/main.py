@@ -73,10 +73,18 @@ def do_send_email(cursor, mail_subject, mail_content, send_email, sent_from, cli
 
     part = MIMEText(mail_content, 'html')
     msg.attach(part)
+    smtp = None
     if smtp_info['smtp_secure'] == 2:
-        smtp = smtplib.SMTP_SSL(smtp_info['host'], smtp_info['port'])
+        try:
+            smtp = smtplib.SMTP_SSL(smtp_info['host'], smtp_info['port'])
+        except:
+            # Error appears: ssl.SSLError: [Errno 1] _ssl.c:492: error:140770FC:SSL routines:SSL23_GET_SERVER_HELLO:unknown protocol
+            pass
     else:
         smtp = smtplib.SMTP(smtp_info['host'], smtp_info['port'])
+
+    if not smtp:
+        return None
 
     try:
         smtp.set_debuglevel(True)
@@ -213,9 +221,10 @@ def send_type_email(rule, cursor, email_content_dirc, system_info):
         elif (send_type == 1):  # admin
             mail_content = mail_content.replace('{username}', 'Admin')
             rst_dirc = do_send_email(cursor, mail_subject, mail_content, send_sys_email, mail_from, client_id, 'admin')
-            rst_dirc['detail_log_ids'] = detail_log_ids
-            rst_dirc['email_type'] = send_type
-            save_log_detail(cursor, rst_dirc, 'email_admin')
+            if rst_dirc:
+                rst_dirc['detail_log_ids'] = detail_log_ids
+                rst_dirc['email_type'] = send_type
+                save_log_detail(cursor, rst_dirc, 'email_admin')
         else:
             mail_content1 = mail_content.replace('{username}', str(client_name))
             rst_dirc = do_send_email(cursor, mail_subject, mail_content1, send_email, mail_from, client_id, client_name)
@@ -671,113 +680,96 @@ def judge_define_condition(rule, cursor):
 
     logger.info("where_code: " + where_code)
 
-    count_sql = """SELECT %s, count(*) as total_attempt, sum( call_duration > 0) as `sum`,
-sum(`pdd`) as total_pdd, sum (`egress_cost` ) as total_egress_cost, sum (`ingress_client_cost` ) as total_ingress_cost,
-sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum( ring_time>0) as seizure  FROM `client_cdr` WHERE %s %s %s %s """ \
-                % (group_field, where_time, where_trunk, where_code, group)
-
-    logger.info("count_sql: " + count_sql)  # for debug
-    cursor.execute(count_sql)
-    sum = cursor.fetchone()
-    # myprint(sum)
-    if sum is None:
-        sum = 0
-    else:
-        sum = int(sum['sum'])
-    # myprint("sum: " + str(sum))
-
     min_call_attempt = rule['min_call_attempt']
     if min_call_attempt is None or min_call_attempt == '':
         min_call_attempt = 0
     min_call_attempt = int(min_call_attempt)
-    logger.info("sum: " + str(sum))
     logger.info("min_call_attempt: " + str(min_call_attempt))
 
-    if sum < min_call_attempt:
-        is_true = False
+    logger.info("***judge other condition***")
+    # myprint((group_field,where_time,where_trunk,where_code,group))
+    sql_2 = """SELECT sum(call_duration) as duration,count(case when call_duration > 0 then 1 else null end) as not_zero_calls,
+                count(case when binary_value_of_release_cause_from_protocol_stack like '486%' then 1 else null end) as busy_calls,count(*) as total_calls,
+                count( case when binary_value_of_release_cause_from_protocol_stack like '487%' then 1 else null end ) as cancel_calls,sum(case when call_duration > 0 then pdd else 0 end) as pdd,
+                sum(ingress_client_cost) as ingress_client_cost_total,sum(egress_cost) as egress_cost_total,""" + group_field + """ FROM client_cdr"""
 
-    if not is_true:
-        return {}, None, None
-    else:
-        logger.info("***judge other condition***")
-        # myprint((group_field,where_time,where_trunk,where_code,group))
-        sql_2 = """SELECT sum(call_duration) as duration,count(case when call_duration > 0 then 1 else null end) as not_zero_calls,
-                    count(case when binary_value_of_release_cause_from_protocol_stack like '486%' then 1 else null end) as busy_calls,count(*) as total_calls,
-                    count( case when binary_value_of_release_cause_from_protocol_stack like '487%' then 1 else null end ) as cancel_calls,sum(case when call_duration > 0 then pdd else 0 end) as pdd,
-                    sum(ingress_client_cost) as ingress_client_cost_total,sum(egress_cost) as egress_cost_total,""" + group_field + """ FROM client_cdr"""
+    sql_2 += """ where %s %s %s %s """ % (where_time, where_trunk, where_code, group)
 
-        sql_2 += """ where %s %s %s %s """ % (where_time, where_trunk, where_code, group)
+    logger.info("sql_2: " + sql_2)
+    cursor.execute(sql_2)
+    data = cursor.fetchall()
 
-        logger.info("sql_2: " + sql_2)
-        cursor.execute(sql_2)
-        data = cursor.fetchall()
+    # 生成每一个condition,并判断
+    return_arr = {}
+    i = 1
+    for item in data:
+        sum = item.get('not_zero_calls') or 0
+        logger.info("sum: " + str(sum))
+        if sum < min_call_attempt:
+            continue
 
-        # 生成每一个condition,并判断
-        return_arr = {}
-        i = 1
-        for item in data:
-            second_data = {}
+        second_data = {}
 
-            duration = int(item['duration']) if item['duration'] is not None else 0
-            not_zero_calls = int(item['not_zero_calls']) if item['not_zero_calls'] is not None else 0
-            busy_calls = int(item['busy_calls']) if item['busy_calls'] is not None else 0
-            total_calls = int(item['total_calls']) if item['total_calls'] is not None else 0
-            cancel_calls = int(item['cancel_calls']) if item['cancel_calls'] is not None else 0
-            ingress_client_cost_total = \
-                item['ingress_client_cost_total'] if item['ingress_client_cost_total'] is not None else 0
-            egress_cost_total = item['egress_cost_total'] if item['egress_cost_total'] is not None else 0
-            pdd = item['pdd'] if item['pdd'] is not None else 0
+        duration = int(item['duration']) if item['duration'] is not None else 0
+        not_zero_calls = int(item['not_zero_calls']) if item['not_zero_calls'] is not None else 0
+        busy_calls = int(item['busy_calls']) if item['busy_calls'] is not None else 0
+        total_calls = int(item['total_calls']) if item['total_calls'] is not None else 0
+        cancel_calls = int(item['cancel_calls']) if item['cancel_calls'] is not None else 0
+        ingress_client_cost_total = \
+            item['ingress_client_cost_total'] if item['ingress_client_cost_total'] is not None else 0
+        egress_cost_total = item['egress_cost_total'] if item['egress_cost_total'] is not None else 0
+        pdd = item['pdd'] if item['pdd'] is not None else 0
 
-            second_data['acd'] = round((duration / not_zero_calls / 60), 2) if not_zero_calls != 0 else 0
-            second_data['abr'] = round(not_zero_calls / total_calls * 100, 2) if total_calls != 0 else 0
+        second_data['acd'] = round((duration / not_zero_calls / 60), 2) if not_zero_calls != 0 else 0
+        second_data['abr'] = round(not_zero_calls / total_calls * 100, 2) if total_calls != 0 else 0
 
-            asr_ = busy_calls + cancel_calls + not_zero_calls
-            second_data['asr'] = round(not_zero_calls / asr_ * 100, 2) if asr_ != 0 else 0
-            second_data['pdd'] = round(pdd / not_zero_calls) if not_zero_calls != 0 else 0
-            second_data['profitability'] = (
-                                               ingress_client_cost_total - egress_cost_total) / ingress_client_cost_total * 100 if ingress_client_cost_total != 0 else 0
-            second_data['revenue'] = ingress_client_cost_total - egress_cost_total
-            logger.info("not_zero_calls=%s, busy_calls=%s, cancel_calls=%s, asr_=%s" % (
-                not_zero_calls, busy_calls, cancel_calls, asr_))
-            logger.info("second_data: " + str(second_data))
+        asr_ = busy_calls + cancel_calls + not_zero_calls
+        second_data['asr'] = round(not_zero_calls / asr_ * 100, 2) if asr_ != 0 else 0
+        second_data['pdd'] = round(pdd / not_zero_calls) if not_zero_calls != 0 else 0
+        second_data['profitability'] = (
+                                           ingress_client_cost_total - egress_cost_total) / ingress_client_cost_total * 100 if ingress_client_cost_total != 0 else 0
+        second_data['revenue'] = ingress_client_cost_total - egress_cost_total
+        logger.info("not_zero_calls=%s, busy_calls=%s, cancel_calls=%s, asr_=%s" % (
+            not_zero_calls, busy_calls, cancel_calls, asr_))
+        logger.info("second_data: " + str(second_data))
 
-            if (rule['revenue'] != '1' and not judge_num(second_data['revenue'], rule['revenue_value'],
-                                                         rule['revenue'])) \
-                    or (rule['acd'] != '1' and not judge_num(second_data['acd'], rule['acd_value'], rule['acd'])) \
-                    or (rule['asr'] != '1' and not judge_num(second_data['asr'], rule['asr_value'], rule['asr'])) \
-                    or (rule['abr'] != '1' and not judge_num(second_data['abr'], rule['abr_value'], rule['abr'])) \
-                    or (rule['pdd'] != '1' and not judge_num(second_data['pdd'], rule['pdd_value'], rule['pdd'])) \
-                    or (rule['profitability'] != '1' and not judge_num(second_data['profitability'],
-                                                                       rule['profitability_value'],
-                                                                       rule['profitability'])):
-                continue
+        if (rule['revenue'] != '1' and not judge_num(second_data['revenue'], rule['revenue_value'],
+                                                     rule['revenue'])) \
+                or (rule['acd'] != '1' and not judge_num(second_data['acd'], rule['acd_value'], rule['acd'])) \
+                or (rule['asr'] != '1' and not judge_num(second_data['asr'], rule['asr_value'], rule['asr'])) \
+                or (rule['abr'] != '1' and not judge_num(second_data['abr'], rule['abr_value'], rule['abr'])) \
+                or (rule['pdd'] != '1' and not judge_num(second_data['pdd'], rule['pdd_value'], rule['pdd'])) \
+                or (rule['profitability'] != '1' and not judge_num(second_data['profitability'],
+                                                                   rule['profitability_value'],
+                                                                   rule['profitability'])):
+            continue
 
-            logger.info("can run")
-            return_arr[i] = {}
-            return_arr[i]['running_info'] = second_data
-            return_arr[i]['trunk_id'] = item.get('trunk_id')
-            return_arr[i]['trunk_type'] = trunk_type
-            return_arr[i]['code'] = item.get('code')
-            i += 1
+        logger.info("can run")
+        return_arr[i] = {}
+        return_arr[i]['running_info'] = second_data
+        return_arr[i]['trunk_id'] = item.get('trunk_id')
+        return_arr[i]['trunk_type'] = trunk_type
+        return_arr[i]['code'] = item.get('code')
+        i += 1
 
-        # Build dictionary for ingress_id, egress_id, and origination_source_number
-        sql_digits = 'SELECT DISTINCT origination_source_number, ingress_id, egress_id FROM client_cdr WHERE %s %s %s' % (
-            where_time, where_trunk, where_code)
-        logger.info("sql_digits: " + sql_digits)
-        cursor.execute(sql_digits)
-        digits = cursor.fetchall()
-        ingress_digits = {}
-        egress_digits = {}
-        for item in digits:
-            if item['ingress_id'] in ingress_digits:
-                ingress_digits[item['ingress_id']].append(item['origination_source_number'])
-            else:
-                ingress_digits[item['ingress_id']] = [item['origination_source_number']]
+    # Build dictionary for ingress_id, egress_id, and origination_source_number
+    sql_digits = 'SELECT DISTINCT origination_source_number, ingress_id, egress_id FROM client_cdr WHERE %s %s %s' % (
+        where_time, where_trunk, where_code)
+    logger.info("sql_digits: " + sql_digits)
+    cursor.execute(sql_digits)
+    digits = cursor.fetchall()
+    ingress_digits = {}
+    egress_digits = {}
+    for item in digits:
+        if item['ingress_id'] in ingress_digits:
+            ingress_digits[item['ingress_id']].append(item['origination_source_number'])
+        else:
+            ingress_digits[item['ingress_id']] = [item['origination_source_number']]
 
-            if item['egress_id'] in egress_digits:
-                egress_digits[item['egress_id']].append(item['origination_source_number'])
-            else:
-                egress_digits[item['egress_id']] = [item['origination_source_number']]
+        if item['egress_id'] in egress_digits:
+            egress_digits[item['egress_id']].append(item['origination_source_number'])
+        else:
+            egress_digits[item['egress_id']] = [item['origination_source_number']]
 
     return return_arr, ingress_digits, egress_digits
 
