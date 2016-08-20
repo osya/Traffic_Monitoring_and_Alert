@@ -606,7 +606,7 @@ def judge_define_condition(rule, cursor):
     # starttime_str = "2015-08-28 07:55:00"
     specific_minutes = rule.get('specific_minutes')
     where_time = " FROM_UNIXTIME(`start_time_of_date` / 1000000) >= (SELECT FROM_UNIXTIME(start_time_of_date div " \
-                 "1000000)-interval %s minute FROM `demo_cdr` order by 1 desc limit 1)" % specific_minutes \
+                 "1000000)-interval %s minute FROM `client_cdr` order by 1 desc limit 1)" % specific_minutes \
         if specific_minutes else None
     logger.info("where_time: " + where_time)
 
@@ -672,7 +672,7 @@ def judge_define_condition(rule, cursor):
 
     count_sql = """SELECT %s, count(*) as total_attempt, sum( call_duration > 0) as `sum`,
 sum(`pdd`) as total_pdd, sum (`egress_cost` ) as total_egress_cost, sum (`ingress_client_cost` ) as total_ingress_cost,
-sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum( ring_time>0) as seizure  FROM `demo_cdr` WHERE %s %s %s %s """ \
+sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum( ring_time>0) as seizure  FROM `client_cdr` WHERE %s %s %s %s """ \
                 % (group_field, where_time, where_trunk, where_code, group)
 
     logger.info("count_sql: " + count_sql)  # for debug
@@ -703,7 +703,7 @@ sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum
         sql_2 = """SELECT sum(call_duration) as duration,count(case when call_duration > 0 then 1 else null end) as not_zero_calls,
                     count(case when binary_value_of_release_cause_from_protocol_stack like '486%' then 1 else null end) as busy_calls,count(*) as total_calls,
                     count( case when binary_value_of_release_cause_from_protocol_stack like '487%' then 1 else null end ) as cancel_calls,sum(case when call_duration > 0 then pdd else 0 end) as pdd,
-                    sum(ingress_client_cost) as ingress_client_cost_total,sum(egress_cost) as egress_cost_total,""" + group_field + """ FROM demo_cdr"""
+                    sum(ingress_client_cost) as ingress_client_cost_total,sum(egress_cost) as egress_cost_total,""" + group_field + """ FROM client_cdr"""
 
         sql_2 += """ where %s %s %s %s """ % (where_time, where_trunk, where_code, group)
 
@@ -760,7 +760,7 @@ sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum
             i += 1
 
         # Build dictionary for ingress_id, egress_id, and origination_source_number
-        sql_digits = 'SELECT DISTINCT origination_source_number, ingress_id, egress_id FROM demo_cdr WHERE %s %s %s' % (
+        sql_digits = 'SELECT DISTINCT origination_source_number, ingress_id, egress_id FROM client_cdr WHERE %s %s %s' % (
             where_time, where_trunk, where_code)
         logger.info("sql_digits: " + sql_digits)
         cursor.execute(sql_digits)
