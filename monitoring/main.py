@@ -276,12 +276,12 @@ def email(rule, return_arr, cursor):
 def do_block_trunk_ani(cursor, resource_id, trunk_type, ani_prefix):
     if trunk_type == 1:
         # Block Origination - Trunk + ANI
-        block_sql = 'insert into resource_block (ingress_res_id, ani_prefix) values (%s, %s) returning res_block_id' % \
-                    (resource_id, ani_prefix)
+        block_sql = 'insert into resource_block (ingress_res_id, ani_prefix) values (%s, \'%s\') returning res_block_id' % \
+                        (resource_id, ani_prefix)
     else:
         # Block Termination - Trunk + ANI
-        block_sql = 'insert into resource_block (engress_res_id, ani_prefix) values (%s, %s) returning res_block_id' % \
-                    (resource_id, ani_prefix)
+        block_sql = 'insert into resource_block (engress_res_id, ani_prefix) values (%s, \'%s\') returning res_block_id' % \
+                        (resource_id, ani_prefix)
 
     logger.info("ani_block_sql: " + block_sql)
     cursor.execute(block_sql)
@@ -290,11 +290,10 @@ def do_block_trunk_ani(cursor, resource_id, trunk_type, ani_prefix):
     return res_block_id
 
 
-def do_block_trunk_dnis(cursor, resource_id, digits):
+def do_block_trunk_dnis(cursor, resource_id, digit):
     # Block Termination  - Trunk   + DNIS
-    for digit in digits:
-        block_sql = 'insert into resource_block (engress_res_id, digit) values (%s, \'%s\') returning res_block_id' % \
-                    (resource_id, digit)
+    block_sql = 'insert into resource_block (engress_res_id, digit) values (%s, \'%s\') returning res_block_id' % \
+                (resource_id, digit)
 
     logger.info("dnis_block_sql: " + block_sql)
     cursor.execute(block_sql)
@@ -386,7 +385,7 @@ def judge_is_in_blocks(blocks, trunk_id, trunk_type, code=''):
         return False
 
 
-def block(rule, return_arr, cursor, egress_digits):
+def block(rule, return_arr, cursor, ingress_digits, egress_digits):
     # for item in return_arr:
     is_block_all_trunk = False
     include = rule['include']
@@ -429,16 +428,27 @@ def block(rule, return_arr, cursor, egress_digits):
                        'resource_block_id': rst}
                 save_log_detail(cursor, val, 'block_true')
 
-                # ani_prefix = None
-                # rst = do_block_trunk_ani(cursor, trunk_id, trunk_type, ani_prefix)
-                # val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
-                #        'resource_block_id': rst}
-                # save_log_detail(cursor, val, 'block_true')
+                if trunk_type == 1:
+                    if ingress_digits.get(trunk_id):
+                        for prefix in ingress_digits.get(trunk_id):
+                            rst = do_block_trunk_ani(cursor, trunk_id, trunk_type, prefix)
+                            val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                                   'resource_block_id': rst}
+                            save_log_detail(cursor, val, 'block_true')
+                else:
+                    if egress_digits.get(trunk_id):
+                        for prefix in egress_digits.get(trunk_id):
+                            rst = do_block_trunk_ani(cursor, trunk_id, trunk_type, prefix)
+                            val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                                   'resource_block_id': rst}
+                            save_log_detail(cursor, val, 'block_true')
                 if trunk_type == 2:
-                    rst = do_block_trunk_dnis(cursor, trunk_id, egress_digits.get(trunk_id))
-                    val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
-                           'resource_block_id': rst}
-                    save_log_detail(cursor, val, 'block_true')
+                    if egress_digits.get(trunk_id):
+                        for digit in egress_digits.get(trunk_id):
+                            rst = do_block_trunk_dnis(cursor, trunk_id, digit)
+                            val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                                   'resource_block_id': rst}
+                            save_log_detail(cursor, val, 'block_true')
 
     else:
         global inserted_trunk_code_dic
@@ -464,16 +474,27 @@ def block(rule, return_arr, cursor, egress_digits):
                        'resource_block_id': rst}
                 save_log_detail(cursor, val, 'block_true')
 
-                # ani_prefix = None
-                # rst = do_block_trunk_ani(cursor, trunk_id, trunk_type, ani_prefix)
-                # val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
-                #        'resource_block_id': rst}
-                # save_log_detail(cursor, val, 'block_true')
+                if trunk_type == 1:
+                    if ingress_digits.get(trunk_id):
+                        for prefix in ingress_digits.get(trunk_id):
+                            rst = do_block_trunk_ani(cursor, trunk_id, trunk_type, prefix)
+                            val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                                   'resource_block_id': rst}
+                            save_log_detail(cursor, val, 'block_true')
+                else:
+                    if egress_digits.get(trunk_id):
+                        for prefix in egress_digits.get(trunk_id):
+                            rst = do_block_trunk_ani(cursor, trunk_id, trunk_type, prefix)
+                            val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                                   'resource_block_id': rst}
+                            save_log_detail(cursor, val, 'block_true')
                 if trunk_type == 2:
-                    rst = do_block_trunk_dnis(cursor, trunk_id, egress_digits[trunk_id])
-                    val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
-                           'resource_block_id': rst}
-                    save_log_detail(cursor, val, 'block_true')
+                    if egress_digits.get(trunk_id):
+                        for digit in egress_digits.get(trunk_id):
+                            rst = do_block_trunk_dnis(cursor, trunk_id, digit)
+                            val = {'alert_rules_log_detail_id': return_arr[key]['alert_rules_log_detail_id'],
+                                   'resource_block_id': rst}
+                            save_log_detail(cursor, val, 'block_true')
 
 
 def save_log_detail(cursor, val, opt, return_arr=[]):
@@ -675,7 +696,7 @@ sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum
         is_true = False
 
     if not is_true:
-        return {}, None
+        return {}, None, None
     else:
         logger.info("***judge other condition***")
         # myprint((group_field,where_time,where_trunk,where_code,group))
@@ -744,14 +765,20 @@ sum ( call_duration ) as total_duration, sum ( call_duration>0) as non_zero, sum
         logger.info("sql_digits: " + sql_digits)
         cursor.execute(sql_digits)
         digits = cursor.fetchall()
+        ingress_digits = {}
         egress_digits = {}
         for item in digits:
+            if item['ingress_id'] in ingress_digits:
+                ingress_digits[item['ingress_id']].append(item['origination_source_number'])
+            else:
+                ingress_digits[item['ingress_id']] = [item['origination_source_number']]
+
             if item['egress_id'] in egress_digits:
                 egress_digits[item['egress_id']].append(item['origination_source_number'])
             else:
                 egress_digits[item['egress_id']] = [item['origination_source_number']]
 
-    return return_arr, egress_digits
+    return return_arr, ingress_digits, egress_digits
 
 
 def judge_time(rule, cursor):
@@ -881,7 +908,7 @@ def alert_rule(pg_cur, ms_cur):
             is_true = judge_time(rule, pg_cur)
             if not is_true:
                 continue
-            return_arr, egress_digits = judge_define_condition(rule, ms_cur)
+            return_arr, ingress_digits, egress_digits = judge_define_condition(rule, ms_cur)
 
             sql = """INSERT INTO alert_rules_log(alert_rules_id, create_on,limit_asr,limit_abr,limit_acd,limit_pdd,limit_revenue,limit_profitability,limit_asr_value,limit_abr_value,limit_acd_value,limit_pdd_value,limit_revenue_value,limit_profitability_value) VALUES (%s, CURRENT_TIMESTAMP(0),%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s) returning id"""
             pg_cur.execute(sql, (
@@ -906,7 +933,7 @@ def alert_rule(pg_cur, ms_cur):
                     logger.info("not block")
                 else:
                     logger.info("block")
-                    block(rule, return_arr, pg_cur, egress_digits)
+                    block(rule, return_arr, pg_cur, ingress_digits, egress_digits)
 
                 is_email = rule['is_email']
                 if not is_email:
