@@ -594,7 +594,7 @@ def judge_num(n1, n2, flg):
         return False
 
 
-def judge_define_condition(rule, cursor):
+def judge_define_condition(rule, ms_cur, pg_cur):
     logger.info("***judge min_call***")
     is_true = True
 
@@ -692,13 +692,12 @@ def judge_define_condition(rule, cursor):
     sql_2 += """ where %s %s %s %s """ % (where_time, where_trunk, where_code, group)
 
     logger.info("sql_2: " + sql_2)
-    cursor.execute(sql_2)
-    data = cursor.fetchall()
+    ms_cur.execute(sql_2)
+    data = ms_cur.fetchall()
 
     # 生成每一个condition,并判断
     return_arr = {}
-    i = 1
-    for item in data:
+    for i, item in enumerate(data):
         sum = item.get('not_zero_calls') or 0
         logger.info("sum: " + str(sum))
         if sum < min_call_attempt:
@@ -746,14 +745,45 @@ def judge_define_condition(rule, cursor):
         return_arr[i]['trunk_id'] = item.get('trunk_id')
         return_arr[i]['trunk_type'] = trunk_type
         return_arr[i]['code'] = item.get('code')
-        i += 1
+
+        sql = """INSERT INTO alert_rules_log(
+                      alert_rules_id,
+                      create_on,
+                      limit_asr,
+                      limit_abr,
+                      limit_acd,
+                      limit_pdd,
+                      limit_revenue,
+                      limit_profitability,
+                      limit_asr_value,
+                      limit_abr_value,
+                      limit_acd_value,
+                      limit_pdd_value,
+                      limit_revenue_value,
+                      limit_profitability_value) VALUES (%s, CURRENT_TIMESTAMP(0),%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s) returning id"""
+        pg_cur.execute(sql, (
+            rule['id'],
+            rule['asr'],
+            rule['abr'],
+            rule['acd'],
+            rule['pdd'],
+            rule['revenue'],
+            rule['profitability'],
+            rule['asr_value'] or second_data['asr'],
+            rule['abr_value'] or second_data['abr'],
+            rule['acd_value'] or second_data['acd'],
+            rule['pdd_value'] or second_data['pdd'],
+            rule['revenue_value'] or second_data['revenue'],
+            rule['profitability_value'] or second_data['profitability']))
+        alert_rules_log_id = pg_cur.fetchone()
+        return_arr[i]['alert_rules_log_id'] = alert_rules_log_id['id']
 
     # Build dictionary for ingress_id, egress_id, and origination_source_number
     sql_digits = 'SELECT DISTINCT origination_source_number, ingress_id, egress_id FROM client_cdr WHERE %s %s %s' % (
         where_time, where_trunk, where_code)
     logger.info("sql_digits: " + sql_digits)
-    cursor.execute(sql_digits)
-    digits = cursor.fetchall()
+    ms_cur.execute(sql_digits)
+    digits = ms_cur.fetchall()
     ingress_digits = {}
     egress_digits = {}
     for item in digits:
@@ -898,46 +928,46 @@ def alert_rule(pg_cur, ms_cur):
 
             if not is_true:
                 continue
-            return_arr, ingress_digits, egress_digits = judge_define_condition(rule, ms_cur)
-
-            sql = """INSERT INTO alert_rules_log(
-              alert_rules_id,
-              create_on,
-              limit_asr,
-              limit_abr,
-              limit_acd,
-              limit_pdd,
-              limit_revenue,
-              limit_profitability,
-              limit_asr_value,
-              limit_abr_value,
-              limit_acd_value,
-              limit_pdd_value,
-              limit_revenue_value,
-              limit_profitability_value) VALUES (%s, CURRENT_TIMESTAMP(0),%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s) returning id"""
-            pg_cur.execute(sql, (
-                rule['id'],
-                rule['asr'],
-                rule['abr'],
-                rule['acd'],
-                rule['pdd'],
-                rule['revenue'],
-                rule['profitability'],
-                rule['asr_value'],
-                rule['abr_value'],
-                rule['acd_value'],
-                rule['pdd_value'],
-                rule['revenue_value'],
-                rule['profitability_value']))
-            alert_rules_log_id = pg_cur.fetchone()
-            alert_rules_log_id = alert_rules_log_id['id']
+            return_arr, ingress_digits, egress_digits = judge_define_condition(rule, ms_cur, pg_cur)
 
             if return_arr == {}:
-                save_finish_alert_rule_log(pg_cur, alert_rules_log_id, 0)
+                sql = """INSERT INTO alert_rules_log(
+                                      alert_rules_id,
+                                      create_on,
+                                      limit_asr,
+                                      limit_abr,
+                                      limit_acd,
+                                      limit_pdd,
+                                      limit_revenue,
+                                      limit_profitability,
+                                      limit_asr_value,
+                                      limit_abr_value,
+                                      limit_acd_value,
+                                      limit_pdd_value,
+                                      limit_revenue_value,
+                                      limit_profitability_value,
+                                      status,
+                                      finish_time) VALUES (%s, CURRENT_TIMESTAMP(0),%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s,%s,CURRENT_TIMESTAMP(0)) returning id"""
+                pg_cur.execute(sql, (
+                    rule['id'],
+                    rule['asr'],
+                    rule['abr'],
+                    rule['acd'],
+                    rule['pdd'],
+                    rule['revenue'],
+                    rule['profitability'],
+                    rule['asr_value'],
+                    rule['abr_value'],
+                    rule['acd_value'],
+                    rule['pdd_value'],
+                    rule['revenue_value'],
+                    rule['profitability_value'],
+                    0))
                 continue
             else:
                 # log_detail
-                return_arr = save_return_arr_to_detail(rule, alert_rules_log_id, return_arr, pg_cur)
+                for value in return_arr.itervalues():
+                    return_arr = save_return_arr_to_detail(rule, value['alert_rules_log_id'], return_arr, pg_cur)
 
                 # 是否block
                 is_block = rule['is_block']
@@ -957,7 +987,8 @@ def alert_rule(pg_cur, ms_cur):
                     logger.info("send mail")
                     email(rule, return_arr, pg_cur)
 
-                save_finish_alert_rule_log(pg_cur, alert_rules_log_id, 1)
+                for value in return_arr.itervalues():
+                    save_finish_alert_rule_log(pg_cur, value['alert_rules_log_id'], 1)
         logger.info("##########")
 
 
