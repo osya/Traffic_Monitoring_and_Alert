@@ -75,11 +75,7 @@ def do_send_email(cursor, mail_subject, mail_content, send_email, sent_from, cli
     msg.attach(part)
     smtp = None
     if smtp_info['smtp_secure'] == 2:
-        try:
-            smtp = smtplib.SMTP_SSL(smtp_info['host'], smtp_info['port'])
-        except:
-            # Error appears: ssl.SSLError: [Errno 1] _ssl.c:492: error:140770FC:SSL routines:SSL23_GET_SERVER_HELLO:unknown protocol
-            pass
+        smtp = smtplib.SMTP_SSL(smtp_info['host'], smtp_info['port'])
     else:
         smtp = smtplib.SMTP(smtp_info['host'], smtp_info['port'])
 
@@ -899,16 +895,40 @@ def alert_rule(pg_cur, ms_cur):
         else:
             logger.info("rule_name: " + rule['rule_name'])
             is_true = judge_time(rule, pg_cur)
+
             if not is_true:
                 continue
             return_arr, ingress_digits, egress_digits = judge_define_condition(rule, ms_cur)
 
-            sql = """INSERT INTO alert_rules_log(alert_rules_id, create_on,limit_asr,limit_abr,limit_acd,limit_pdd,limit_revenue,limit_profitability,limit_asr_value,limit_abr_value,limit_acd_value,limit_pdd_value,limit_revenue_value,limit_profitability_value) VALUES (%s, CURRENT_TIMESTAMP(0),%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s) returning id"""
+            sql = """INSERT INTO alert_rules_log(
+              alert_rules_id,
+              create_on,
+              limit_asr,
+              limit_abr,
+              limit_acd,
+              limit_pdd,
+              limit_revenue,
+              limit_profitability,
+              limit_asr_value,
+              limit_abr_value,
+              limit_acd_value,
+              limit_pdd_value,
+              limit_revenue_value,
+              limit_profitability_value) VALUES (%s, CURRENT_TIMESTAMP(0),%s,%s,%s,%s,%s,%s, %s,%s,%s,%s,%s,%s) returning id"""
             pg_cur.execute(sql, (
-                rule['id'], rule['asr'], rule['abr'], rule['acd'], rule['pdd'], rule['revenue'],
-                rule['profitability'], rule['asr_value'], rule['abr_value'], rule['acd_value'],
+                rule['id'],
+                rule['asr'],
+                rule['abr'],
+                rule['acd'],
+                rule['pdd'],
+                rule['revenue'],
+                rule['profitability'],
+                rule['asr_value'],
+                rule['abr_value'],
+                rule['acd_value'],
                 rule['pdd_value'],
-                rule['revenue_value'], rule['profitability_value']))
+                rule['revenue_value'],
+                rule['profitability_value']))
             alert_rules_log_id = pg_cur.fetchone()
             alert_rules_log_id = alert_rules_log_id['id']
 
