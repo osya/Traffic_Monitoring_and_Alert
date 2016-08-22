@@ -505,8 +505,10 @@ def block(rule, return_arr, cursor, ingress_digits, egress_digits):
 def save_log_detail(cursor, val, opt, return_arr=[]):
     if opt == 'block_false':
         for key in return_arr:
-            sql = """update alert_rules_log_detail set is_block = %s where id = %s"""
-            cursor.execute(sql, (val, return_arr[key]['alert_rules_log_detail_id']))
+            alert_rules_log_detail_id = return_arr[key].get('alert_rules_log_detail_id')
+            if alert_rules_log_detail_id:
+                sql = """update alert_rules_log_detail set is_block = %s where id = %s"""
+                cursor.execute(sql, (val, alert_rules_log_detail_id))
     elif opt == 'block_true':
         resource_block_id = val['resource_block_id']
         id = val['alert_rules_log_detail_id']
@@ -514,12 +516,16 @@ def save_log_detail(cursor, val, opt, return_arr=[]):
         cursor.execute(sql, (resource_block_id, id))
     elif opt == 'email_false':
         for key in return_arr:
-            sql = """update alert_rules_log_detail set is_email = %s where id = %s"""
-            cursor.execute(sql, (val, return_arr[key]['alert_rules_log_detail_id']))
+            alert_rules_log_detail_id = return_arr[key].get('alert_rules_log_detail_id')
+            if alert_rules_log_detail_id:
+                sql = """update alert_rules_log_detail set is_email = %s where id = %s"""
+                cursor.execute(sql, (val, alert_rules_log_detail_id))
     elif opt == 'email_true':
         for key in return_arr:
-            sql = """update alert_rules_log_detail set is_email = %s where id = %s"""
-            cursor.execute(sql, (val, return_arr[key]['alert_rules_log_detail_id']))
+            alert_rules_log_detail_id = return_arr[key].get('alert_rules_log_detail_id')
+            if alert_rules_log_detail_id:
+                sql = """update alert_rules_log_detail set is_email = %s where id = %s"""
+                cursor.execute(sql, (val, alert_rules_log_detail_id))
     elif opt == 'email_client':
         detail_log_ids = val['detail_log_ids']
         status = val['status']
@@ -612,7 +618,7 @@ def judge_define_condition(rule, ms_cur, pg_cur):
 
     sample_size = rule.get('sample_size')
     where_time = " FROM_UNIXTIME(`start_time_of_date` / 1000000) >= (SELECT FROM_UNIXTIME(start_time_of_date div " \
-                 "1000000)-interval %s minute FROM `client_cdr` order by 1 desc limit 1)" % sample_size \
+                 "1000000)-interval %s minute FROM `%s` order by 1 desc limit 1)" % (sample_size, Config['CDR_TABLE']) \
         if sample_size else None
     logger.info("where_time: " + where_time)
 
@@ -630,6 +636,7 @@ def judge_define_condition(rule, ms_cur, pg_cur):
     }
     second_group_field = second_group_field_map.get(rule['monitor_by']) or None;
 
+    where_trunk = ''
     if trunk_type == 1:  # ingress
         group = "GROUP BY ingress_id"
         group_field = "ingress_id as trunk_id"
@@ -644,8 +651,7 @@ def judge_define_condition(rule, ms_cur, pg_cur):
             group += ', %s' % second_group_field
             group_field += ', %s' % second_group_field
             where_trunk = " AND egress_id is not null " if all_trunk else " AND egress_id in (%s) " % (res_id,)
-
-    logger.info("where_trunk: " + where_trunk)
+    logger.info("where_trunk: %s" % where_trunk)
 
     # include
     where_code = ""
@@ -687,9 +693,8 @@ def judge_define_condition(rule, ms_cur, pg_cur):
     sql_2 = """SELECT sum(call_duration) as duration,count(case when call_duration > 0 then 1 else null end) as not_zero_calls,
                 count(case when binary_value_of_release_cause_from_protocol_stack like '486%' then 1 else null end) as busy_calls,count(*) as total_calls,
                 count( case when binary_value_of_release_cause_from_protocol_stack like '487%' then 1 else null end ) as cancel_calls,sum(case when call_duration > 0 then pdd else 0 end) as pdd,
-                sum(ingress_client_cost) as ingress_client_cost_total,sum(egress_cost) as egress_cost_total,""" + group_field + """ FROM client_cdr"""
-
-    sql_2 += """ where %s %s %s %s """ % (where_time, where_trunk, where_code, group)
+                sum(ingress_client_cost) as ingress_client_cost_total,sum(egress_cost) as egress_cost_total,""" + group_field + """ FROM `%s`
+                WHERE %s %s %s %s """ % (Config['CDR_TABLE'], where_time, where_trunk, where_code, group)
 
     logger.info("sql_2: " + sql_2)
     ms_cur.execute(sql_2)
@@ -779,8 +784,8 @@ def judge_define_condition(rule, ms_cur, pg_cur):
         return_arr[i]['alert_rules_log_id'] = alert_rules_log_id['id']
 
     # Build dictionary for ingress_id, egress_id, and origination_source_number
-    sql_digits = 'SELECT DISTINCT origination_source_number, ingress_id, egress_id FROM client_cdr WHERE %s %s %s' % (
-        where_time, where_trunk, where_code)
+    sql_digits = 'SELECT DISTINCT origination_source_number, ingress_id, egress_id FROM `%s` WHERE %s %s %s' % (
+        Config['CDR_TABLE'], where_time, where_trunk, where_code)
     logger.info("sql_digits: " + sql_digits)
     ms_cur.execute(sql_digits)
     digits = ms_cur.fetchall()

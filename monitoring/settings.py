@@ -13,5 +13,6 @@ Config = {
     'POSTGRESQL_DATABASE': 'class4_pr',
     'POSTGRESQL_USER': 'postgres',
     'POSTGRESQL_PASSWORD': None,
-    'MONITORING_CYCLE_DELAY': 60    # in seconds
+    'MONITORING_CYCLE_DELAY': 60,    # in seconds
+    'CDR_TABLE': 'demo_cdr'
 }
