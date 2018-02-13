@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="4a0bfb15-d03e-4d7e-b74d-79a8eb43a48a" name="Monitoring" url="http://158.69.203.19">
+        <fileTransfer host="158.69.203.19" port="2893" privateKey="C:\Users\info_000\.ssh\KwongAnne_OpenSSH" rootFolder="/home/valeriy" accessType="SFTP" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="2893" />
+        </fileTransfer>
+      </webServer>
+      <webServer id="813b9502-ffc8-4807-a10a-f9261e5cdd45" name="192.99.10.113" url="http://192.99.10.113">
+        <fileTransfer host="192.99.10.113" port="22" privateKey="C:\Users\info_000\.ssh\KwongAnne_OpenSSH" rootFolder="/home/valeriy" accessType="SFTP" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
