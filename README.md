@@ -1,16 +1,18 @@
-===============================
-Monitoring
-===============================
+# Traffic Monitoring and Alert
 
-This app intended for some monitoring in Denovlab
+## Introduction
 
+This app intended for some traffic monitoring in Denovlab
 
-Quickstart
-----------
+Used technologies:
+
+- Python
+- PostgreSQL & MySQL
+
+## Installation
 
 1. Clone repository of Monitoring app
-2.
-Then run the following commands to bootstrap your environment.
+2. Then run the following commands to bootstrap your environment.
 
 ```bash
 cd <path_where_you_cloned_app>
@@ -20,3 +22,6 @@ pip install mysqlclient
 cd monitoring
 nohup python main.py
 ```
+## Usage
+
+## Tests
