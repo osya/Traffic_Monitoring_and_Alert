@@ -10,6 +10,7 @@ Used technologies:
 
 - Python
 - PostgreSQL & MySQL
+- Travis CI
 
 ## Installation
 
