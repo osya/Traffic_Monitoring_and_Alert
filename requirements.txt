@@ -1,4 +1,4 @@
 mysqlclient
-psycopg2
+psycopg2-binary~=2.7.4
 argparse
 apscheduler
